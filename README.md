@@ -3,6 +3,8 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+See `WRITE_UP.md` for explanations.
+
 ## Dependencies
 
 * cmake >= 3.5

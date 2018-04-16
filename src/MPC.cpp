@@ -6,8 +6,8 @@
 using CppAD::AD;
 
 // TODO: Set the timestep length and duration
-size_t N = 10;
-double dt = 0.15;
+size_t N = 8;
+double dt = 0.1;
 
 // This value assumes the model presented in the classroom is used.
 //
@@ -22,14 +22,14 @@ double dt = 0.15;
 const double Lf = 2.67;
 double v_ref = 80; // set the reference velocity
 
-// state variables position label
+// state variables position indices
 size_t x_start = 0;
 size_t y_start = x_start + N;
 size_t psi_start = y_start + N;
 size_t v_start = psi_start + N;
 size_t cte_start = v_start + N;
 size_t epsi_start = cte_start + N;
-// actuator variables position label
+// actuator variables position indices
 size_t delta_start = epsi_start + N;
 size_t a_start = delta_start + N - 1;
 
@@ -48,7 +48,7 @@ class FG_eval {
     size_t i;
     fg[0] = 0;
 
-    // The part of the cost based on the reference state.
+    // Cost from states.
     for (i = 0; i < N; i++)
     {
       // minimize cte and error of psi
@@ -58,19 +58,22 @@ class FG_eval {
       fg[0] += CppAD::pow(vars[v_start + i] - v_ref, 2);
     }
 
-    // Minimize the use of actuators.
+    // Cost about actuators.
     for (i = 0; i < N - 1; i++)
     {
+      // control magnitude of steering value
       fg[0] += 1500 * CppAD::pow(vars[delta_start + i], 2);
-      fg[0] += CppAD::pow(vars[a_start + i], 2);
-      fg[0] += 1100 * CppAD::pow(vars[delta_start + i] * vars[v_start + i], 2);
+      // control magnitude of gas pedal value
+      fg[0] += 10 * CppAD::pow(vars[a_start + i], 2);
     }
 
-    // // Minimize the value gap between sequential actuations.
+    // smoothness of actuation.
     for (i = 0; i < N - 2; i++)
     {
-      fg[0] += 5000 * CppAD::pow(vars[delta_start + i + 1] - vars[delta_start + i], 2);
-      fg[0] += CppAD::pow(vars[a_start + i + 1] - vars[a_start + i], 2);
+      // control derivative of steering input value
+      fg[0] += 10000 * CppAD::pow(vars[delta_start + i + 1] - vars[delta_start + i], 2);
+      // control derivative of gas pedal input value
+      fg[0] += 10000 * CppAD ::pow(vars[a_start + i + 1] - vars[a_start + i], 2);
     }
 
     fg[x_start + 1] = vars[x_start];
@@ -101,9 +104,10 @@ class FG_eval {
       AD<double> delta0 = vars[delta_start + i];
       AD<double> a0 = vars[a_start + i];
 
-      // Here we want a 3rd order polynomial:
+      // When acceleration changes linear in time, then position is a 3rd order polynomial in time
       AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * CppAD::pow(x0, 2) + coeffs[3] * CppAD::pow(x0, 3);
       AD<double> psides0 = CppAD::atan(coeffs[1] + (2 * coeffs[2] * x0) + (3 * coeffs[3] * CppAD::pow(x0, 2)));
+      // The model should lead the car to the next way point
       fg[2 + x_start + i] = x1 - (x0 + v0 * CppAD::cos(psi0) * dt);
       fg[2 + y_start + i] = y1 - (y0 + v0 * CppAD::sin(psi0) * dt);
       fg[2 + v_start + i] = v1 - (v0 + a0 * dt);
@@ -164,12 +168,12 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     vars_upperbound[i] = 1.0e19;
   }
 
-  // The upper and lower limits of delta are set to -25 and 25
+  // The upper and lower limits of steering angle are set to -25 and 25
   // degrees (values in radians).
   for (i = delta_start; i < a_start; i++)
   {
     vars_lowerbound[i] = -0.436332;
-    vars_upperbound[i] = 0.436332;
+    vars_upperbound[i] = 0.436332; //25/180*pi
   }
 
   // Acceleration/decceleration upper and lower limits.
@@ -249,5 +253,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   }
   // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
   // creates a 2 element double vector.
-  return {solution.x[delta_start], solution.x[a_start]};
+  // to address latency
+  return {solution.x[delta_start] + solution.x[delta_start + 1],
+          solution.x[a_start] + solution.x[a_start + 1]};
 }
